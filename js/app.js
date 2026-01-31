@@ -7,6 +7,7 @@ class NotepadApp {
         this.isDirty = false;
         this.autosaveTimeout = null;
         this.lockoutInterval = null;
+        this.encryptionKey = null; // Password used for encryption
 
         this.elements = {
             editor: document.getElementById('editor'),
@@ -189,11 +190,18 @@ class NotepadApp {
     }
 
     // Notes management
-    async loadNotes() {
+    async loadNotes(decrypt = false) {
         try {
             const file = await githubAPI.getFile(CONFIG.paths.notes);
             if (file) {
-                this.notes = JSON.parse(file.content);
+                let content = file.content;
+
+                // Decrypt if we have the key and data is encrypted
+                if (decrypt && this.encryptionKey && cryptoService.isEncrypted(content)) {
+                    content = await cryptoService.decrypt(content, this.encryptionKey);
+                }
+
+                this.notes = JSON.parse(content);
                 this.notesSha = file.sha;
             } else {
                 this.notes = [];
@@ -207,7 +215,13 @@ class NotepadApp {
 
     async saveNotesToGitHub() {
         try {
-            const content = JSON.stringify(this.notes, null, 2);
+            let content = JSON.stringify(this.notes, null, 2);
+
+            // Encrypt if we have the key
+            if (this.encryptionKey) {
+                content = await cryptoService.encrypt(content, this.encryptionKey);
+            }
+
             this.notesSha = await githubAPI.saveFile(
                 CONFIG.paths.notes,
                 content,
@@ -364,6 +378,7 @@ class NotepadApp {
 
         try {
             await auth.setPassword(password);
+            this.encryptionKey = password; // Store for encryption
             this.hideModal('passwordSetup');
             this.showNotesListModal();
             errorEl.textContent = '';
@@ -381,6 +396,7 @@ class NotepadApp {
 
         if (valid) {
             auth.clearAttempts();
+            this.encryptionKey = password; // Store for encryption/decryption
             this.hideModal('password');
             this.showNotesListModal();
         } else {
@@ -450,6 +466,16 @@ class NotepadApp {
         }
 
         try {
+            // Re-encrypt notes with new password
+            const oldKey = this.encryptionKey;
+            if (oldKey && this.notes.length > 0) {
+                // Notes are already decrypted in memory, just update the key
+                this.encryptionKey = newPassword;
+                await this.saveNotesToGitHub(); // Re-encrypt with new password
+            } else {
+                this.encryptionKey = newPassword;
+            }
+
             await auth.resetPassword(code, newPassword);
             this.hideModal('reset');
             this.updateStatus('Password reset successful');
@@ -461,7 +487,7 @@ class NotepadApp {
 
     // Notes list display
     async showNotesListModal() {
-        await this.loadNotes();
+        await this.loadNotes(true); // Decrypt notes
         const listEl = document.getElementById('notes-list');
         listEl.innerHTML = '';
 
