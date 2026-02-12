@@ -1,18 +1,8 @@
 // GitHub API Handler
 class GitHubAPI {
     constructor() {
-        this.token = localStorage.getItem('notepad_github_token');
+        this.token = CONFIG.github.token || localStorage.getItem('notepad_github_token');
         this.baseUrl = 'https://api.github.com';
-    }
-
-    setToken(token) {
-        this.token = token;
-        localStorage.setItem('notepad_github_token', token);
-    }
-
-    clearToken() {
-        this.token = null;
-        localStorage.removeItem('notepad_github_token');
     }
 
     hasToken() {

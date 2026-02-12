@@ -4,7 +4,8 @@ const CONFIG = {
     github: {
         owner: 'vaibhavgit9210',             // Your GitHub username
         repo: 'notepad',                     // Repository name
-        branch: 'main'
+        branch: 'main',
+        token: ''                            // Your GitHub Personal Access Token (repo scope)
     },
 
     // File paths in repository

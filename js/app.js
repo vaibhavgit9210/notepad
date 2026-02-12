@@ -11,7 +11,6 @@ class NotepadApp {
 
         this.elements = {
             editor: document.getElementById('editor'),
-            noteTitle: document.getElementById('note-title'),
             statusText: document.getElementById('status-text'),
             autosaveIndicator: document.getElementById('autosave-indicator'),
             btnNew: document.getElementById('btn-new'),
@@ -20,7 +19,6 @@ class NotepadApp {
         };
 
         this.modals = {
-            auth: document.getElementById('auth-modal'),
             passwordSetup: document.getElementById('password-setup-modal'),
             password: document.getElementById('password-modal'),
             lockout: document.getElementById('lockout-modal'),
@@ -37,17 +35,30 @@ class NotepadApp {
         // Initialize email service
         emailService.init();
 
-        // Check GitHub token
+        // Token is in config - validate it silently
         if (!githubAPI.hasToken()) {
-            this.showModal('auth');
+            this.updateStatus('No GitHub token configured');
+            console.error('Set CONFIG.github.token in js/config.js');
         } else {
             const valid = await githubAPI.validateToken();
             if (!valid) {
-                githubAPI.clearToken();
-                this.showModal('auth');
+                this.updateStatus('Invalid GitHub token');
+                console.error('GitHub token is invalid. Update CONFIG.github.token in js/config.js');
             } else {
                 await this.loadNotes();
             }
+        }
+
+        // Prompt for 6-digit code on load
+        if (!auth.hasPassword()) {
+            this.showModal('passwordSetup');
+        } else if (auth.isLockedOut()) {
+            this.showLockoutModal();
+        } else {
+            this.showModal('password');
+            document.getElementById('password-input').value = '';
+            document.getElementById('password-error').textContent = '';
+            this.updateAttemptsDisplay();
         }
 
         this.bindEvents();
@@ -62,10 +73,6 @@ class NotepadApp {
 
         // Editor changes
         this.elements.editor.addEventListener('input', () => this.onEditorChange());
-        this.elements.noteTitle.addEventListener('input', () => this.onEditorChange());
-
-        // Auth form
-        document.getElementById('auth-form').addEventListener('submit', (e) => this.handleAuth(e));
 
         // Password setup form
         document.getElementById('password-setup-form').addEventListener('submit', (e) => this.handlePasswordSetup(e));
@@ -113,11 +120,11 @@ class NotepadApp {
             }
         });
 
-        // Close modals on escape
+        // Close modals on escape (except password modal on initial load)
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
                 Object.values(this.modals).forEach(modal => {
-                    if (modal.classList.contains('active') && modal !== this.modals.auth) {
+                    if (modal && modal.classList.contains('active')) {
                         modal.classList.remove('active');
                     }
                 });
@@ -171,24 +178,6 @@ class NotepadApp {
         this.elements.autosaveIndicator.classList.toggle('saving', show);
     }
 
-    // Auth handling
-    async handleAuth(e) {
-        e.preventDefault();
-        const token = document.getElementById('github-token').value.trim();
-
-        githubAPI.setToken(token);
-        const valid = await githubAPI.validateToken();
-
-        if (valid) {
-            this.hideModal('auth');
-            await this.loadNotes();
-            this.updateStatus('Connected');
-        } else {
-            githubAPI.clearToken();
-            alert('Invalid token. Please check and try again.');
-        }
-    }
-
     // Notes management
     async loadNotes(decrypt = false) {
         try {
@@ -235,13 +224,36 @@ class NotepadApp {
         }
     }
 
+    // Get first word of content as title
+    getFirstWord(content) {
+        const firstWord = content.trim().split(/\s+/)[0];
+        return firstWord || 'Untitled';
+    }
+
     // Editor operations
     onEditorChange() {
+        const content = this.elements.editor.value;
+
+        // Don't track changes for empty content
+        if (!content.trim()) return;
+
         this.isDirty = true;
         this.updateStatus('Unsaved changes');
 
+        // Auto-create note if none exists
+        if (!this.currentNote) {
+            this.currentNote = {
+                id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
+                title: this.getFirstWord(content),
+                content: content,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+            };
+            this.notes.push(this.currentNote);
+        }
+
         // Debounced autosave
-        if (CONFIG.autosave.enabled && this.currentNote) {
+        if (CONFIG.autosave.enabled) {
             clearTimeout(this.autosaveTimeout);
             this.autosaveTimeout = setTimeout(() => {
                 this.autoSave();
@@ -266,8 +278,10 @@ class NotepadApp {
     saveNoteSync() {
         if (!this.isDirty || !this.currentNote) return;
 
-        const title = this.elements.noteTitle.value.trim() || 'Untitled';
         const content = this.elements.editor.value;
+        if (!content.trim()) return; // Don't save empty
+
+        const title = this.getFirstWord(content);
 
         const noteIndex = this.notes.findIndex(n => n.id === this.currentNote.id);
         if (noteIndex !== -1) {
@@ -304,28 +318,27 @@ class NotepadApp {
     createNewNote() {
         this.currentNote = null;
         this.elements.editor.value = '';
-        this.elements.noteTitle.value = '';
         this.isDirty = false;
         this.updateStatus('New note');
         this.elements.editor.focus();
     }
 
     async openNotesModal() {
-        // Check password protection
-        if (!auth.hasPassword()) {
-            this.showModal('passwordSetup');
+        // If not yet unlocked, prompt for password
+        if (!this.encryptionKey) {
+            if (!auth.hasPassword()) {
+                this.showModal('passwordSetup');
+            } else if (auth.isLockedOut()) {
+                this.showLockoutModal();
+            } else {
+                this.showModal('password');
+                document.getElementById('password-input').value = '';
+                document.getElementById('password-error').textContent = '';
+                this.updateAttemptsDisplay();
+            }
             return;
         }
-
-        if (auth.isLockedOut()) {
-            this.showLockoutModal();
-            return;
-        }
-
-        this.showModal('password');
-        document.getElementById('password-input').value = '';
-        document.getElementById('password-error').textContent = '';
-        this.updateAttemptsDisplay();
+        this.showNotesListModal();
     }
 
     updateAttemptsDisplay() {
@@ -546,20 +559,20 @@ class NotepadApp {
 
     openNote(note) {
         this.currentNote = note;
-        this.elements.noteTitle.value = note.title || '';
         this.elements.editor.value = note.content || '';
         this.isDirty = false;
         this.updateStatus('Note loaded');
     }
 
     async saveNote() {
-        const title = this.elements.noteTitle.value.trim() || 'Untitled';
         const content = this.elements.editor.value;
 
-        if (!content.trim() && !title) {
+        if (!content.trim()) {
             this.updateStatus('Nothing to save');
             return;
         }
+
+        const title = this.getFirstWord(content);
 
         this.updateStatus('Saving...');
         this.elements.btnSave.disabled = true;
@@ -602,8 +615,10 @@ class NotepadApp {
     async saveCurrentNote() {
         if (!this.currentNote) return;
 
-        const title = this.elements.noteTitle.value.trim() || 'Untitled';
         const content = this.elements.editor.value;
+        if (!content.trim()) return; // Don't save empty
+
+        const title = this.getFirstWord(content);
 
         const noteIndex = this.notes.findIndex(n => n.id === this.currentNote.id);
         if (noteIndex !== -1) {

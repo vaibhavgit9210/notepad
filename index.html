@@ -28,26 +28,6 @@
         <main class="editor-container">
             <textarea id="editor" class="editor" placeholder="Start typing..."></textarea>
         </main>
-
-        <!-- Note Title Input -->
-        <div class="title-bar">
-            <input type="text" id="note-title" class="note-title-input" placeholder="Untitled" maxlength="50">
-        </div>
-    </div>
-
-    <!-- Auth Modal (GitHub Token) -->
-    <div id="auth-modal" class="modal">
-        <div class="modal-content">
-            <h2>Setup</h2>
-            <p>Enter your GitHub Personal Access Token to enable saving.</p>
-            <form id="auth-form">
-                <input type="password" id="github-token" placeholder="ghp_xxxxxxxxxxxx" required>
-                <p class="hint">Token needs <code>repo</code> scope. <a href="https://github.com/settings/tokens/new" target="_blank">Create token</a></p>
-                <div class="modal-actions">
-                    <button type="submit" class="btn btn-primary">Connect</button>
-                </div>
-            </form>
-        </div>
     </div>
 
     <!-- Password Setup Modal -->
